@@ -1,5 +1,5 @@
 # SoboSuika
-A Sobosuba mod that adds a Suika inspired game mode.
+A Sobosuba mod which adds a Suika inspired game mode.
 
 Tested on Sobosuba v1.3.11
 
