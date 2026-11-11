@@ -1,0 +1,132 @@
+extends SceneClassic
+class_name SceneSuika
+
+const BLOCKED_SPAWN_SIZES: Array[int] = [1, 2]
+const FALLBACK_SIZE := 4
+const MAX_SIZE := 4096
+const POP_SHAKE := 50.0
+const POP_ZOOM := -5
+const POP_VALUE := MAX_SIZE * 2
+
+signal next_size_changed(size: int)
+
+var next_size := -1
+var popped_count := 0
+var popping: Array = []
+var achievements_before := false
+var target_x := 0.0
+
+func _ready() -> void:
+	super()
+	for size: int in BLOCKED_SPAWN_SIZES:
+		spawn_pool.merges_required_to_unlock.erase(size)
+	spawn_pool.current_spawn_pool.clear()
+	spawn_pool.current_spawn_pool.append(FALLBACK_SIZE)
+	roll_next_size()
+	set_online_blocked(true)
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	if PlayerInput.get_gameplay_input_device() != PlayerInput.InputDevice.MOUSE:
+		return
+
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		target_x = PlayerInput.cursor_pos.x
+
+	for sobo: Sobo in float_bar.sobos:
+		for suba: Suba in sobo.subas:
+			suba.apply_central_force(Vector2((target_x - suba.global_position.x) * 5.0, 0.0))
+
+func _exit_tree() -> void:
+	set_online_blocked(false)
+	super()
+
+func set_online_blocked(blocked: bool) -> void:
+	var connected: bool = SignalBus.on_game_over.is_connected(ScoreManager.on_game_over)
+	if blocked:
+		achievements_before = AchievementTracker.disable_achievements
+		AchievementTracker.disable_achievements = true
+		if connected:
+			SignalBus.on_game_over.disconnect(ScoreManager.on_game_over)
+	else:
+		AchievementTracker.disable_achievements = achievements_before
+		if not connected:
+			var others: Array = SignalBus.on_game_over.get_connections()
+			for c: Dictionary in others:
+				SignalBus.on_game_over.disconnect(c.callable)
+			SignalBus.on_game_over.connect(ScoreManager.on_game_over)
+			for c: Dictionary in others:
+				SignalBus.on_game_over.connect(c.callable, c.flags)
+
+func apply_game_state(new_state: GameState) -> void:
+	super(new_state)
+	popped_count = 0
+	popping.clear()
+	var board_sum := calculate_score()
+	popped_count = maxi(ScoreManager.current_score - board_sum, 0) / POP_VALUE
+	roll_next_size()
+
+func pop_camera_kick() -> void:
+	Cam._0.vibrate(POP_SHAKE)
+	Cam._0.push_zoom(POP_ZOOM)
+
+func calculate_score() -> int:
+	popping = popping.filter(is_instance_valid)
+	var sum := popped_count * POP_VALUE
+	for s: Sobo in SoboManager.all_sobos:
+		if s.merged == false: continue
+		if s.merged_this_frame: continue
+		if popping.has(s): continue
+		sum += s.data.size
+	return sum
+
+func on_clutter_spawned(sobo: Sobo) -> void:
+	if sobo.data.size in BLOCKED_SPAWN_SIZES:
+		sobo.queue_free()
+		return
+	super(sobo)
+
+func roll_next_size() -> void:
+	var rolled := spawn_pool.get_size(BLOCKED_SPAWN_SIZES)
+	if rolled == -1:
+		rolled = FALLBACK_SIZE
+	next_size = rolled
+	next_size_changed.emit(next_size)
+
+func take_next_size() -> int:
+	if next_size == -1:
+		roll_next_size()
+	var taken := next_size
+	roll_next_size()
+	return taken
+
+func get_safety_spawn_size() -> int:
+	return take_next_size()
+
+func spawn_sobo_on_side(side: ClassicSide, size := -1, replay_id := 0) -> Sobo:
+	if makes_decisions():
+		if float_bar.sobos.size() > 0:
+			return null
+		if size == -1:
+			size = take_next_size()
+	return super(side, size, replay_id)
+
+func on_sobo_merge(old_sobo0: Sobo, old_sobo1: Sobo, new_sobo: Sobo) -> void:
+	if old_sobo0.data.size >= MAX_SIZE and old_sobo1.data.size >= MAX_SIZE:
+		if launching_sobo == old_sobo0 or launching_sobo == old_sobo1:
+			launching_sobo = null
+			launching = false
+			Ui._0.mouse_hovering_disabled = false
+		if hovered_sobo == old_sobo0 or hovered_sobo == old_sobo1:
+			hovered_sobo = null
+		remove_from_role_lists(old_sobo0)
+		remove_from_role_lists(old_sobo1)
+		pop_camera_kick()
+		popping.append_array([old_sobo0, old_sobo1, new_sobo])
+		new_sobo.queue_free()
+		popped_count += 1
+		var new_score := calculate_score()
+		if new_score != ScoreManager.current_score:
+			SignalBus.on_gain_score.emit(new_score - ScoreManager.current_score)
+		return
+	super(old_sobo0, old_sobo1, new_sobo)
