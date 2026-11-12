@@ -24,8 +24,9 @@ func _ready() -> void:
 	spawn_pool.current_spawn_pool.append(FALLBACK_SIZE)
 	roll_next_size()
 	set_online_blocked(true)
+	SignalBus.on_game_over.connect(_on_game_over)
 
-func _process(delta: float) -> void:
+func _process(delta: float) -> void: #todo: gamepad
 	super._process(delta)
 	if PlayerInput.get_gameplay_input_device() != PlayerInput.InputDevice.MOUSE:
 		return
@@ -36,6 +37,9 @@ func _process(delta: float) -> void:
 	for sobo: Sobo in float_bar.sobos:
 		for suba: Suba in sobo.subas:
 			suba.apply_central_force(Vector2((target_x - suba.global_position.x) * 5.0, 0.0))
+
+func _on_game_over() -> void:
+	ScoreManager.add_local_score("suika", ScoreManager.current_score)
 
 func _exit_tree() -> void:
 	set_online_blocked(false)
