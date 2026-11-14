@@ -7,6 +7,8 @@ const MAX_SIZE := 4096
 const POP_SHAKE := 50.0
 const POP_ZOOM := -5
 const POP_VALUE := MAX_SIZE * 2
+const PAD_SPEED := 500.0
+const PAD_MARGIN := 100.0
 
 signal next_size_changed(size: int)
 
@@ -15,9 +17,11 @@ var popped_count := 0
 var popping: Array = []
 var achievements_before := false
 var target_x := 0.0
+var marker: Sprite2D
 
 func _ready() -> void:
 	super()
+	float_bar.inwards_force = 0.0
 	for size: int in BLOCKED_SPAWN_SIZES:
 		spawn_pool.merges_required_to_unlock.erase(size)
 	spawn_pool.current_spawn_pool.clear()
@@ -25,14 +29,33 @@ func _ready() -> void:
 	roll_next_size()
 	set_online_blocked(true)
 	SignalBus.on_game_over.connect(_on_game_over)
+	setup_marker()
 
-func _process(delta: float) -> void: #todo: gamepad
+func _physics_process(dt: float) -> void:
+	if makes_decisions() and sobos_selectable.size() == 1 and PlayerInput.get_gameplay_input_device() == PlayerInput.InputDevice.GAMEPAD:
+		hovered_sobo = sobos_selectable[0]
+	super(dt)
+
+func _process(delta: float) -> void:
 	super._process(delta)
-	if PlayerInput.get_gameplay_input_device() != PlayerInput.InputDevice.MOUSE:
-		return
+	var device := PlayerInput.get_gameplay_input_device()
 
-	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		target_x = PlayerInput.cursor_pos.x
+	if device == PlayerInput.InputDevice.MOUSE:
+		marker.hide()
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			target_x = PlayerInput.cursor_pos.x
+	elif device == PlayerInput.InputDevice.GAMEPAD:
+		marker.show()
+		if makes_decisions() and PlayerInput.accepting_in_game_input():
+			var stick: Vector2 = PlayerInput.right_stick if SettingsManager.settings.swap_sticks else PlayerInput.left_stick
+			target_x += stick.rotated(Cam._0.rotation).x * PAD_SPEED * delta
+			var rect: Rect2 = world_play_area.get_global_rect()
+			target_x = clampf(target_x, rect.position.x + PAD_MARGIN, rect.end.x - PAD_MARGIN)
+		marker.global_position = Vector2(target_x, float_bar.global_position.y)
+		marker.rotation = -Cam._0.rotation
+	else:
+		marker.hide()
+		return
 
 	for sobo: Sobo in float_bar.sobos:
 		for suba: Suba in sobo.subas:
@@ -42,8 +65,31 @@ func _on_game_over() -> void:
 	ScoreManager.add_local_score("suika", ScoreManager.current_score)
 
 func _exit_tree() -> void:
+	if StyleManager.style_changed.is_connected(refresh_marker_texture):
+		StyleManager.style_changed.disconnect(refresh_marker_texture)
 	set_online_blocked(false)
 	super()
+
+func hover_sobo_in_dir(_dir: Vector2) -> void:
+	pass
+
+func setup_marker() -> void:
+	marker = Sprite2D.new()
+	marker.centered = false
+	marker.scale = Vector2(0.75, 0.75)
+	marker.z_as_relative = false
+	marker.z_index = -1
+	marker.visible = false
+	add_child(marker)
+	StyleManager.style_changed.connect(refresh_marker_texture)
+	refresh_marker_texture()
+
+func refresh_marker_texture() -> void:
+	if marker == null:
+		return
+	marker.texture = StyleManager.current_style.cursor_texture
+	var hotspot: Vector2 = ProjectSettings.get_setting("display/mouse_cursor/custom_image_hotspot")
+	marker.offset = -hotspot
 
 func set_online_blocked(blocked: bool) -> void:
 	var connected: bool = SignalBus.on_game_over.is_connected(ScoreManager.on_game_over)
