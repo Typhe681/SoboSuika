@@ -96,6 +96,7 @@ func register_mode() -> void:
 	mode_res = GameMode.new()
 	mode_res.scene_path = "res://game_mode/game_modes/suika/scene_suika.tscn"
 	mode_res.description = "Classic, but with fruit!"
+	mode_res.leaderboard_id = "suika"
 	mode_res.horizontal = true
 	mode_res.allows_start_clutter = true
 	mode_res.take_over_path("res://game_mode/game_modes/suika/%s.tres" % MODE_NAME)
