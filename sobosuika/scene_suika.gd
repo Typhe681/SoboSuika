@@ -9,6 +9,7 @@ const POP_ZOOM := -5
 const POP_VALUE := MAX_SIZE * 2
 const PAD_SPEED := 500.0
 const PAD_MARGIN := 100.0
+const FLOAT_SPEED := 2.0
 
 signal next_size_changed(size: int)
 
@@ -59,7 +60,7 @@ func _process(delta: float) -> void:
 
 	for sobo: Sobo in float_bar.sobos:
 		for suba: Suba in sobo.subas:
-			suba.apply_central_force(Vector2((target_x - suba.global_position.x) * 5.0, 0.0))
+			suba.apply_central_force(Vector2((target_x - suba.global_position.x) * FLOAT_SPEED, 0.0))
 
 func _on_game_over() -> void:
 	ScoreManager.add_local_score("suika", ScoreManager.current_score)
@@ -69,9 +70,6 @@ func _exit_tree() -> void:
 		StyleManager.style_changed.disconnect(refresh_marker_texture)
 	set_online_blocked(false)
 	super()
-
-func hover_sobo_in_dir(_dir: Vector2) -> void:
-	pass
 
 func setup_marker() -> void:
 	marker = Sprite2D.new()
