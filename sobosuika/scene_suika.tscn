@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="PackedScene" path="res://game_mode/game_modes/classic/classic/scene_classic.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://game_mode/game_modes/classic/scene_classic_l.tscn" id="1"]
 [ext_resource type="Script" path="res://game_mode/game_modes/suika/scene_suika.gd" id="2"]
 
 [node name="SceneSuika" instance=ExtResource("1")]
