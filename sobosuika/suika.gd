@@ -67,6 +67,7 @@ func load_config() -> void:
 	sprite_type = int(cf.get_value("sprite_type", "value", 0))
 
 	cf.set_value("meta", "name", "SoboSuika")
+	cf.set_value("meta", "description", "Configure your favorite fruit-filled gamemode :3")
 
 	cf.set_value("hide_numbers", "type", "bool")
 	cf.set_value("hide_numbers", "label", "hide numbers")
