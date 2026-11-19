@@ -44,6 +44,7 @@ void fragment() { COLOR.a = 0.0; }
 
 func _ready() -> void:
 	process_priority = 100
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	load_config()
 
