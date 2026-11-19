@@ -23,8 +23,12 @@ It should look like this:
     ├── scene_suika.gd
     ├── scene_suika.tscn
     ├── bubble.png
-    ├── 4.png
-    ├── 8.png
-    ├── 16.png
-    └── etc...
+    ├── custom
+    |   ├── 4.png
+    |   ├── 8.png
+    |   └── etc...
+    └── original
+        ├── 4.png
+        ├── 8.png
+        └── etc...
 ```
