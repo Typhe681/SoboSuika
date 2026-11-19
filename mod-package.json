@@ -20,5 +20,11 @@
     "en": "Adds a Suika gamemode!"
   },
   "readme": "README.md",
-  "dependencies": []
+  "dependencies": [
+    {
+      "id": "modsettings",
+      "version": "1.0.0",
+      "sha256": "b3d1ebb30d9e3dda89c50d96eceda51fd6b60f83ee51cea065038495b912d0b5"
+    }
+  ]
 }
