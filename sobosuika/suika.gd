@@ -1,6 +1,8 @@
 extends Node
 
 const MEDIA_DIR := "user://sobosuika/"
+const CUSTOM_DIR := MEDIA_DIR + "custom/"
+const ORIGINAL_DIR := MEDIA_DIR + "original/"
 const MODE_NAME := "mode_suika"
 const CFG := "user://sobosuika.cfg"
 const BUBBLE_PATH := "user://sobosuika/bubble.png"
@@ -19,6 +21,7 @@ const PREVIEW_FILL := 0.5
 const MESH_PADDING := 3.0
 const SMOOTH := 2 # number of subdivisions, lag machine when high lol
 
+var sprite_type := 0
 var textures: Dictionary = {}
 var regions: Dictionary = {}
 var hide_material: ShaderMaterial
@@ -61,19 +64,33 @@ func load_config() -> void:
 	cf.load(CFG)
 
 	hide_numbers = bool(cf.get_value("hide_numbers", "value", true))
+	sprite_type = int(cf.get_value("sprite_type", "value", 0))
 
 	cf.set_value("meta", "name", "SoboSuika")
 
 	cf.set_value("hide_numbers", "type", "bool")
-	cf.set_value("hide_numbers", "label", "Hide numbers")
+	cf.set_value("hide_numbers", "label", "hide numbers")
 	cf.set_value("hide_numbers", "description", "Hides the number on each fruit")
 	cf.set_value("hide_numbers", "value", hide_numbers)
 
+	cf.set_value("sprite_type", "type", "choice")
+	cf.set_value("sprite_type", "label", "sprite source")
+	cf.set_value("sprite_type", "description", "Swaps which sprites are used")
+	cf.set_value("sprite_type", "options", ["Custom", "Original"])
+	cf.set_value("sprite_type", "value", sprite_type)
+
 	cf.save(CFG)
 
-func _on_config_changed(path: String, _section: String, _value: Variant) -> void:
-	if path == CFG:
-		load_config()
+func _on_config_changed(path: String, section: String, _value: Variant) -> void:
+	if path != CFG:
+		return
+
+	var old_type := sprite_type
+	load_config()
+
+	if old_type != sprite_type:
+		load_textures()
+		repatch_sobos()
 
 func register_mode() -> void:
 	mode_res = GameMode.new()
@@ -88,13 +105,19 @@ func register_mode() -> void:
 	Console.add_suggestion(MODE_NAME, "game mode")
 
 func load_textures() -> void:
+	textures.clear()
+	regions.clear()
+	bubble_texture = null
+
+	var source_dir := CUSTOM_DIR if sprite_type == 0 else ORIGINAL_DIR
+
 	DirAccess.make_dir_recursive_absolute(
-		ProjectSettings.globalize_path(MEDIA_DIR)
+		ProjectSettings.globalize_path(source_dir)
 	)
 
 	var size := MIN_SIZE
 	while size <= MAX_SIZE:
-		var path := MEDIA_DIR + str(size) + ".png"
+		var path := source_dir + str(size) + ".png"
 		if not FileAccess.file_exists(path):
 			push_warning("SoboSuika: missing " + path)
 		else:
@@ -114,6 +137,21 @@ func load_textures() -> void:
 			push_error("SoboSuika: failed to load image: " + BUBBLE_PATH)
 		else:
 			bubble_texture = ImageTexture.create_from_image(image)
+
+func repatch_sobos() -> void:
+	for sobo in patched_sobos.keys():
+		if not is_instance_valid(sobo):
+			continue
+
+		var mi: MeshInstance2D = patched_sobos[sobo]["mi"]
+		if is_instance_valid(mi):
+			mi.queue_free()
+
+		sobo.set_material(original_materials.get(sobo))
+
+	patched_sobos.clear()
+	original_materials.clear()
+	preview_size_shown = -1
 
 func default_region(img_size: Vector2i) -> Rect2:
 	var side := mini(img_size.x, img_size.y)
