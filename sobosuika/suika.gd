@@ -28,6 +28,7 @@ var hide_material: ShaderMaterial
 var mode_res: GameMode
 var patched_sobos: Dictionary = {}
 var original_materials: Dictionary = {}
+var logo_patched := false
 
 var preview: Control
 var preview_image: TextureRect
@@ -155,6 +156,17 @@ func repatch_sobos() -> void:
 	original_materials.clear()
 	preview_size_shown = -1
 
+func patch_mode_logo() -> void:
+	if logo_patched:
+		return
+
+	for screen in get_tree().root.find_children("*", "GameModesScreen", true, false):
+		for i in screen.mode_names.size():
+			if screen.mode_names[i] == "suika":
+				screen.mode_buttons[i].logo.mark = ModeLogo.Mark.CUSTOM
+				logo_patched = true
+				return
+
 func default_region(img_size: Vector2i) -> Rect2:
 	var side := mini(img_size.x, img_size.y)
 	return Rect2(
@@ -271,6 +283,7 @@ func _process(_delta: float) -> void:
 
 	update_preview(scene, active)
 	update_title()
+	patch_mode_logo()
 
 	if not active:
 		return
