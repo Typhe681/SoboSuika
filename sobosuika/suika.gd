@@ -2,7 +2,7 @@ extends Node
 
 const MEDIA_DIR := "user://sobosuika/"
 const MODE_NAME := "mode_suika"
-const CFG := "user://suika.cfg"
+const CFG := "user://sobosuika.cfg"
 const BUBBLE_PATH := "user://sobosuika/bubble.png"
 
 const TITLE_PATH := "/root/Main/Ui/MainHBox/LeftSidePanel/Control/DftLabel"
@@ -49,15 +49,31 @@ func _ready() -> void:
 	hide_material = ShaderMaterial.new()
 	hide_material.shader = hide_shader
 
+	var broadcaster = get_tree().root.get_meta("modsettings_broadcaster", null)
+	if broadcaster:
+		broadcaster.config_changed.connect(_on_config_changed)
+
 	load_textures()
 	register_mode()
 
 func load_config() -> void:
 	var cf := ConfigFile.new()
 	cf.load(CFG)
-	hide_numbers = bool(cf.get_value("suika", "hide_numbers", true))
-	cf.set_value("suika", "hide_numbers", hide_numbers)
+
+	hide_numbers = bool(cf.get_value("hide_numbers", "value", true))
+
+	cf.set_value("meta", "name", "SoboSuika")
+
+	cf.set_value("hide_numbers", "type", "bool")
+	cf.set_value("hide_numbers", "label", "Hide numbers")
+	cf.set_value("hide_numbers", "description", "Hides the number on each fruit")
+	cf.set_value("hide_numbers", "value", hide_numbers)
+
 	cf.save(CFG)
+
+func _on_config_changed(path: String, _section: String, _value: Variant) -> void:
+	if path == CFG:
+		load_config()
 
 func register_mode() -> void:
 	mode_res = GameMode.new()
@@ -189,7 +205,7 @@ func hide_labels() -> void:
 			sobo.sobo_label.visible = false
 			hidden_labels[sobo] = true
 
-func restore_labels() -> void: #for possible setting toggle later
+func restore_labels() -> void:
 	if hidden_labels.is_empty():
 		return
 	for sobo in hidden_labels.keys():
@@ -221,6 +237,8 @@ func _process(_delta: float) -> void:
 
 	if hide_numbers:
 		hide_labels()
+	else:
+		restore_labels()
 
 	if textures.is_empty():
 		return
