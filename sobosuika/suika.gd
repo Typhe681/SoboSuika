@@ -16,10 +16,12 @@ const PREVIEW_OFFSET_X := 45
 const PREVIEW_OFFSET_Y := 20
 const PREVIEW_Z := 100
 const PREVIEW_FILL := 0.5
+const MESH_PADDING := 3.0
+const SMOOTH := 2 # number of subdivisions, lag machine when high lol
 
 var textures: Dictionary = {}
 var regions: Dictionary = {}
-var shader: Shader
+var hide_material: ShaderMaterial
 var mode_res: GameMode
 var patched_sobos: Dictionary = {}
 var original_materials: Dictionary = {}
@@ -32,47 +34,9 @@ var hide_numbers := true
 var hidden_labels: Dictionary = {}
 var preview_size_shown := -1
 
-const SHADER_CODE := """
+const HIDE_SHADER_CODE := """
 shader_type canvas_item;
-
-uniform sampler2D sobo_texture;
-uniform vec2 uv_offset;
-uniform vec2 uv_scale;
-uniform bool flipped_screen;
-uniform vec2 sobo_center;
-uniform vec2 sobo_bounds_size;
-uniform float sobo_rotation;
-
-varying vec2 world_position;
-
-void vertex() {
-	world_position = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
-}
-
-void fragment() {
-	vec2 local_position = world_position - sobo_center;
-
-	if (flipped_screen) {
-		local_position = -local_position;
-	}
-
-	float c = cos(-sobo_rotation);
-	float s = sin(-sobo_rotation);
-	local_position = mat2(vec2(c, -s), vec2(s, c)) * local_position;
-
-	vec2 rotated_bounds = vec2(
-		abs(c) * sobo_bounds_size.x + abs(s) * sobo_bounds_size.y,
-		abs(s) * sobo_bounds_size.x + abs(c) * sobo_bounds_size.y
-	);
-
-	float side = max(rotated_bounds.x, rotated_bounds.y);
-	vec2 uv = local_position / side + vec2(0.5);
-
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-		discard;
-	}
-	COLOR = texture(sobo_texture, uv_offset + uv * uv_scale);
-}
+void fragment() { COLOR.a = 0.0; }
 """
 
 func _ready() -> void:
@@ -80,8 +44,11 @@ func _ready() -> void:
 
 	load_config()
 
-	shader = Shader.new()
-	shader.code = SHADER_CODE
+	var hide_shader := Shader.new()
+	hide_shader.code = HIDE_SHADER_CODE
+	hide_material = ShaderMaterial.new()
+	hide_material.shader = hide_shader
+
 	load_textures()
 	register_mode()
 
@@ -140,25 +107,6 @@ func default_region(img_size: Vector2i) -> Rect2:
 		side,
 		side
 	)
-
-func get_sobo_local_bounds(sobo: Sobo) -> Dictionary:
-	var points = sobo.get_draw_polygon_points()
-	if points.is_empty():
-		return {"center": sobo.get_visual_center(), "size": Vector2.ZERO}
-
-	var min_point: Vector2 = points[0]
-	var max_point: Vector2 = points[0]
-
-	for point: Vector2 in points:
-		min_point = min_point.min(point)
-		max_point = max_point.max(point)
-
-	var rect := Rect2(min_point, max_point - min_point).grow(10.0)
-
-	return {
-		"center": rect.get_center(),
-		"size": rect.size
-	}
 
 func preview_thing(scene: Node) -> bool:
 	if is_instance_valid(preview) and preview.get_parent() == scene:
@@ -250,12 +198,16 @@ func restore_labels() -> void: #for possible setting toggle later
 	hidden_labels.clear()
 
 func update_title() -> void:
+	if GameModeManager.current_mode_name != MODE_NAME or get_tree().paused:
+		return
+
 	if not is_instance_valid(title_label):
 		title_label = get_node_or_null(TITLE_PATH)
 		if title_label == null:
 			return
-	if title_label.get("text") != TITLE:
-		title_label.set("text", TITLE)
+
+	if title_label.text != TITLE:
+		title_label.text = TITLE
 
 func _process(_delta: float) -> void:
 	var scene = GameModeManager.current_scene
@@ -286,31 +238,109 @@ func _process(_delta: float) -> void:
 		if not is_instance_valid(sobo) or not SoboManager.all_sobos.has(sobo):
 			if is_instance_valid(sobo):
 				sobo.set_material(original_materials.get(sobo))
+				var mi: MeshInstance2D = patched_sobos[sobo]["mi"]
+				if is_instance_valid(mi):
+					mi.queue_free()
 			patched_sobos.erase(sobo)
 			original_materials.erase(sobo)
 			continue
-
-		var mat: ShaderMaterial = patched_sobos[sobo]
-		var rotation := 0.0
-		var positions = sobo.get_positions()
-		if not positions.is_empty():
-			var relative: Vector2 = positions[0] - sobo.get_visual_center()
-			rotation = relative.angle()
-		mat.set_shader_parameter("sobo_rotation", rotation)
-
-		var b := get_sobo_local_bounds(sobo)
-		mat.set_shader_parameter("sobo_center", b.center)
-		mat.set_shader_parameter("sobo_bounds_size", b.size)
-		mat.set_shader_parameter("flipped_screen", SettingsManager.settings.flipped_screen)
+		update_mesh(sobo, patched_sobos[sobo])
 
 func patch_sobo(sobo: Sobo, tex: Texture2D, region: Rect2) -> void:
 	original_materials[sobo] = sobo.get_material()
+	sobo.set_material(hide_material)
 
-	var mat := ShaderMaterial.new()
-	mat.shader = shader
-	mat.set_shader_parameter("sobo_texture", tex)
+	var mi := MeshInstance2D.new()
+	mi.top_level = true
+	mi.texture = tex
+	mi.mesh = ArrayMesh.new()
+	var outline_z := 0
+	if SoboOutline._0 is CanvasItem:
+		outline_z = (SoboOutline._0 as CanvasItem).z_index
+	mi.z_as_relative = false
+	mi.z_index = outline_z + 1
+	sobo.add_child(mi)
+
+	var d := {"mi": mi, "tex": tex, "region": region, "flip": null}
+	patched_sobos[sobo] = d
+	build_uvs(sobo, d)
+
+func to_tex_uv(uv: Vector2, region: Rect2, tex_size: Vector2) -> Vector2:
+	return (region.position + uv * region.size) / tex_size
+
+func ring_spline(ctrl: PackedVector2Array) -> PackedVector2Array:
+	var points := ctrl.duplicate()
+
+	for _i in SMOOTH:
+		var smooth := PackedVector2Array()
+		smooth.resize(points.size() * 2)
+
+		for i in points.size():
+			var p1 := points[i]
+			var p2 := points[(i + 1) % points.size()]
+
+			smooth[i * 2] = p1.lerp(p2, 0.25)
+			smooth[i * 2 + 1] = p1.lerp(p2, 0.75)
+
+		points = smooth
+
+	return points
+
+func build_uvs(sobo: Sobo, d: Dictionary) -> void:
+	var rest = sobo.data.circular_positions
+	var n: int = sobo.subas.size()
+	var tex: Texture2D = d["tex"]
+	var region: Rect2 = d["region"]
 	var tex_size := Vector2(tex.get_width(), tex.get_height())
-	mat.set_shader_parameter("uv_offset", region.position / tex_size)
-	mat.set_shader_parameter("uv_scale", region.size / tex_size)
-	sobo.set_material(mat)
-	patched_sobos[sobo] = mat
+	var flip: bool = SettingsManager.settings.flipped_screen
+	var hw: float = sobo.visual_half_width
+	var r: float = rest[0].length() + hw
+
+	var ctrl := PackedVector2Array()
+	ctrl.resize(n)
+	for i in n:
+		var rp: Vector2 = rest[i]
+		var uv := Vector2(0.5, 0.5) + (rp + rp.normalized() * hw) / (2.0 * r)
+		if flip:
+			uv = Vector2.ONE - uv
+		ctrl[i] = uv
+	var ring := ring_spline(ctrl)
+	var m := ring.size()
+
+	var uvs := PackedVector2Array()
+	uvs.resize(m + 1)
+	uvs[0] = to_tex_uv(Vector2(0.5, 0.5), region, tex_size)
+	var idx := PackedInt32Array()
+	for j in m:
+		uvs[j + 1] = to_tex_uv(ring[j], region, tex_size)
+		idx.append_array([0, 1 + j, 1 + (j + 1) % m])
+	d["uvs"] = uvs
+	d["idx"] = idx
+	d["flip"] = flip
+	d["n"] = n
+
+func update_mesh(sobo: Sobo, d: Dictionary) -> void:
+	if d["flip"] != SettingsManager.settings.flipped_screen:
+		build_uvs(sobo, d)
+	var pos = sobo.get_positions()
+	var n: int = pos.size()
+	if n == 0 or n != d["n"]:
+		return
+	var center := sobo.get_visual_center()
+	var hw: float = sobo.visual_half_width
+	var ctrl := PackedVector2Array()
+	ctrl.resize(n)
+	for i in n:
+		var p: Vector2 = pos[i]
+		ctrl[i] = p + (p - center).normalized() * (hw + MESH_PADDING)
+	var verts := PackedVector2Array([center])
+	verts.append_array(ring_spline(ctrl))
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = d["uvs"]
+	arrays[Mesh.ARRAY_INDEX] = d["idx"]
+	var mesh: ArrayMesh = (d["mi"] as MeshInstance2D).mesh
+	mesh.clear_surfaces()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
